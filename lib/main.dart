@@ -1,3 +1,6 @@
+//main.dart
+
+//import statements
 import 'Backend/database_helper.dart';
 import 'Backend/AuthManager.dart';
 import 'package:flutter/material.dart';
@@ -5,12 +8,15 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+//main function. Don't ouch this.
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   runApp(const CoachFlowApp());
 }
 
+//Authentication and login
+//Don't change for it now
 class CoachFlowApp extends StatelessWidget {
   const CoachFlowApp({super.key});
 
@@ -44,6 +50,8 @@ class AuthScreen extends StatefulWidget {
   State<AuthScreen> createState() => _AuthScreenState();
 }
 
+//Authentication screen
+//Same don/t change now
 class _AuthScreenState extends State<AuthScreen> {
   bool _isLogin = true;
   bool _isLoading = false;
@@ -167,6 +175,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
+//Main Dashboard
 class MainDashboard extends StatefulWidget {
   const MainDashboard({Key? key}) : super(key: key);
 
@@ -175,8 +184,11 @@ class MainDashboard extends StatefulWidget {
 }
 
 class _MainDashboardState extends State<MainDashboard> {
+
+  //Backend component (Don't touch)
   int _currentIndex = 0;
 
+  //Backend component (Don't touch)
   final List<Widget> _pages = [
     DashboardScreen(),
     AttendanceScreen(),
@@ -186,6 +198,7 @@ class _MainDashboardState extends State<MainDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    //UI
     return Scaffold(
       //backgroundColor: const Color(0xFF0F172A), // Deep dark blue
       appBar: AppBar(
@@ -265,14 +278,18 @@ class _MainDashboardState extends State<MainDashboard> {
   }
 }
 
+//Dashboard screen
 class DashboardScreen extends StatelessWidget {
   DashboardScreen({super.key});
 
+  //Backend component (Don't touch)
   final String teacherId =
       FirebaseAuth.instance.currentUser!.uid;
 
+  //Backend component (Don't touch)
   String get currentMonth { final now = DateTime.now(); return "${now.year}-${now.month.toString().padLeft(2, '0')}"; }
 
+  //UI
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -313,6 +330,7 @@ class DashboardScreen extends StatelessWidget {
   /// 1️⃣ ACTIVE STUDENTS
   Widget _buildActiveStudentsCard() {
     return StreamBuilder<QuerySnapshot>(
+      //Backend component (Don't touch)
       stream: FirebaseFirestore.instance
           .collection("teachers")
           .doc(teacherId)
@@ -323,6 +341,7 @@ class DashboardScreen extends StatelessWidget {
 
         int count = snapshot.data?.docs.length ?? 0;
 
+        //UI
         return _statCard(
           title: "Active Students",
           value: count.toString(),
@@ -332,7 +351,7 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  /// 2️⃣ BATCH COUNT
+  /// 2️⃣ BATCH COUNT Backend component (Don't touch)
   Widget _buildBatchesCard() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -353,7 +372,7 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  /// 3️⃣ TOTAL COLLECTED THIS MONTH
+  /// 3️⃣ TOTAL COLLECTED THIS MONTH Backend component (Don't touch)
   Widget _buildCollectedCard() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -380,7 +399,7 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  /// 4️⃣ STUDENTS WITH DUE
+  /// 4️⃣ STUDENTS WITH DUE Backend component (Don't touch)
   Widget _buildPendingStudentsCard() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -440,6 +459,7 @@ class DashboardScreen extends StatelessWidget {
   }
 }
 
+//Add Students 
 class AddStudents extends StatefulWidget {
   const AddStudents({super.key});
 
@@ -448,6 +468,7 @@ class AddStudents extends StatefulWidget {
 }
 
 class _AddStudentsState extends State<AddStudents> {
+  //Backend component (Don't touch)
   final _nameController = TextEditingController();
   final _parentsEmailController = TextEditingController();
   final _parentPhoneController = TextEditingController();
@@ -458,6 +479,7 @@ class _AddStudentsState extends State<AddStudents> {
 
   String? selectedBatchId;
 
+  //Backend component as well as UI handler
   @override
   void dispose() {
     _nameController.dispose();
@@ -467,6 +489,7 @@ class _AddStudentsState extends State<AddStudents> {
     super.dispose();
   }
 
+  //Backend component 
   void _addStudent() async {
     final name = _nameController.text.trim();
     final parentEmail = _parentsEmailController.text.trim();
@@ -504,6 +527,7 @@ class _AddStudentsState extends State<AddStudents> {
       feesDue: feesDue,
     );
 
+    //UI
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text("Student added Successfully successfully"),
@@ -524,6 +548,7 @@ class _AddStudentsState extends State<AddStudents> {
 
   }
 
+  //UI but have backend to extract data
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -620,6 +645,7 @@ class _AddStudentsState extends State<AddStudents> {
   }
 }
 
+//Add batch
 class AddBatch extends StatefulWidget {
   const AddBatch({super.key});
 
@@ -628,12 +654,14 @@ class AddBatch extends StatefulWidget {
 }
 
 class _AddBatchState extends State<AddBatch> {
+  //Backend components
   final _namecontroller = TextEditingController();
   final _subjectcontroller = TextEditingController();
   final _shedulecontroller = TextEditingController();
   final _monthly_feesController = TextEditingController();
   final _db = DatabaseHelper();
 
+  //Backend components
   @override
   void dispose() {
     _namecontroller.dispose();
@@ -643,6 +671,7 @@ class _AddBatchState extends State<AddBatch> {
     super.dispose();
   }
 
+  //Backend components
   void _addbatch() {
     final name = _namecontroller.text.trim();
     final subject = _subjectcontroller.text.trim();
@@ -658,6 +687,7 @@ class _AddBatchState extends State<AddBatch> {
 
     _db.addBatch(name: name, subject: subject, schedule: shedule, monthlyFee: monthly_fee);
 
+    //UI
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text("Batch added successfully"),
@@ -673,6 +703,7 @@ class _AddBatchState extends State<AddBatch> {
 
   }
 
+  //UI with backend components
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -722,6 +753,7 @@ class _AddBatchState extends State<AddBatch> {
   }
 }
 
+//Attendence screen
 class AttendanceScreen extends StatefulWidget {
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -729,6 +761,7 @@ class AttendanceScreen extends StatefulWidget {
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
 
+  //Backend components
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final String teacherId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -738,6 +771,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   String get today => DateTime.now().toIso8601String().split('T')[0];
 
+  //Backend components
   Future<void> toggleAttendance({ required String studentId, required String batchId, required bool markPresent, }) async {
 
     final studentRef = _db
@@ -801,6 +835,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     });
   }
 
+  //UI
   @override
   Widget build(BuildContext context) {
 
@@ -859,6 +894,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           /// STUDENTS LIST
           if (selectedBatchId != null)
             Expanded(
+              // Backend
               child: StreamBuilder<QuerySnapshot>(
                 stream: _db
                     .collection("teachers")
@@ -870,7 +906,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         isEqualTo: true)
                     .snapshots(),
                 builder: (context, snapshot) {
-
+                //UI
                   if (!snapshot.hasData) {
                     return const Center(
                         child: Center(
@@ -900,6 +936,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       final studentId = doc.id;
 
                       return StreamBuilder<DocumentSnapshot>(
+                        //Backend
                         stream: _db
                             .collection("teachers")
                             .doc(teacherId)
@@ -911,7 +948,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         builder: (context, attSnap) {
 
                           bool marked = attSnap.data?.exists ?? false;
-
+                          //UI
                           return Container(
                             margin: EdgeInsets.symmetric(vertical: 6, horizontal: 12),
                             padding: EdgeInsets.all(12),
@@ -950,6 +987,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 }
 
+//Payment Screen
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key});
 
@@ -959,11 +997,13 @@ class PaymentScreen extends StatefulWidget {
 
 class _PaymentScreenState extends State<PaymentScreen> {
 
+  //Backend components
   final DatabaseHelper _dbHelper = DatabaseHelper();
 
   String? selectedBatchId;
   double monthlyFee = 0;
 
+  //UI
   void _showPaymentDialog(String studentId, String name) {
 
     final amountController = TextEditingController();
@@ -1015,6 +1055,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       },
     );
   }
+  //UI
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -1057,6 +1098,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   });
 
                   if (val != null) {
+                    //Backend
                     final batchDoc = await FirebaseFirestore.instance
                         .collection("teachers")
                         .doc(_dbHelper.teacherId)
@@ -1077,6 +1119,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         if (selectedBatchId != null)
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
+              //BAckend
               stream: FirebaseFirestore.instance
                   .collection("teachers")
                   .doc(_dbHelper.teacherId)
@@ -1085,7 +1128,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   .where("is_active", isEqualTo: true)
                   .snapshots(),
               builder: (context, snapshot) {
-
+                
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
@@ -1095,7 +1138,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 if (students.isEmpty) {
                   return const Center(child: Text("No students"));
                 }
-
+                //UI
                 return ListView.builder(
                   itemCount: students.length,
                   itemBuilder: (context, index) {
@@ -1164,6 +1207,7 @@ class profile extends StatefulWidget {
   State<profile> createState() => _profileState();
 }
 
+//UI
 class _profileState extends State<profile> {
   @override
   Widget build(BuildContext context) {
