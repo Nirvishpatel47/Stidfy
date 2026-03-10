@@ -1204,18 +1204,39 @@ class profile extends StatefulWidget {
   const profile({super.key});
 
   @override
-  State<profile> createState() => _profileState();
+  State<profile> createState() => _profile();
 }
 
 //UI
-class _profileState extends State<profile> {
+class _profile extends State<profile> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text("Profile Section"),
       ),
-      
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: 40,
+              backgroundColor: Colors.grey[300],
+              child: Icon(Icons.person, size: 40, color: Colors.white),
+            ),
+            SizedBox(height: 16),
+            Text(
+              "User Name",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text(
+              "user@example.com",
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
