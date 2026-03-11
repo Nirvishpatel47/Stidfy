@@ -5,7 +5,15 @@ class DatabaseHelper {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final String teacherId = FirebaseAuth.instance.currentUser!.uid;
 
-  Future<void> addBatch({ required String name, required String subject, required String schedule, required double monthlyFee, }) async {
+  // Backend: adds a new batch with fee duration for total fee calculation
+  Future<void> addBatch({
+    required String name,
+    required String subject,
+    required String schedule,
+    required double monthlyFee,
+    required DateTime startDate,      // NEW
+    required int durationMonths,      // NEW
+  }) async {
     await _db
         .collection("teachers")
         .doc(teacherId)
@@ -15,6 +23,8 @@ class DatabaseHelper {
       "subject": subject,
       "schedule": schedule,
       "monthly_fee": monthlyFee,
+      "start_date": Timestamp.fromDate(startDate),   // NEW
+      "duration_months": durationMonths,              // NEW
       "total_days": 0,
       "last_attendance_date": null,
       "created_at": FieldValue.serverTimestamp(),
@@ -49,6 +59,8 @@ class DatabaseHelper {
         "parent_phone": parentPhone,
         "batch_id": batchId,
         "roll_no": rollno,
+        "join_date": Timestamp.now(),
+        "last_fee_paid_month": null,
         "fees_due": feesDue,
         "fees_paid": 0.0,
         "present_days": 0,
@@ -112,5 +124,54 @@ class DatabaseHelper {
       studentId: studentId,
       feesPaid: amount,
     );
+  }
+
+  Future<void> updateMonthlyFee({
+    required String studentId,
+    required double monthlyFee,
+  }) async {
+
+    final studentRef = _db
+        .collection("teachers")
+        .doc(teacherId)
+        .collection("students")
+        .doc(studentId);
+
+    final doc = await studentRef.get();
+    if (!doc.exists) return;
+
+    final data = doc.data()!;
+
+    String currentMonth =
+        "${DateTime.now().year}-${DateTime.now().month}";
+
+    String lastPaidMonth = data["last_fee_paid_month"] ?? "";
+
+    if (lastPaidMonth != currentMonth) {
+      await studentRef.update({
+        "fees_due": monthlyFee
+      });
+    }
+  }
+
+  Future<void> markMonthlyPaid({
+    required String studentId,
+    required double monthlyFee,
+  }) async {
+
+    final studentRef = _db
+        .collection("teachers")
+        .doc(teacherId)
+        .collection("students")
+        .doc(studentId);
+
+    String currentMonth =
+        "${DateTime.now().year}-${DateTime.now().month}";
+
+    await studentRef.update({
+      "fees_due": 0,
+      "last_fee_paid_month": currentMonth,
+      "fees_paid": FieldValue.increment(monthlyFee)
+    });
   }
 }
