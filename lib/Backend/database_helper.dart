@@ -5,7 +5,15 @@ class DatabaseHelper {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final String teacherId = FirebaseAuth.instance.currentUser!.uid;
 
-  Future<void> addBatch({ required String name, required String subject, required String schedule, required double monthlyFee, }) async {
+  // Backend: adds a new batch with fee duration for total fee calculation
+  Future<void> addBatch({
+    required String name,
+    required String subject,
+    required String schedule,
+    required double monthlyFee,
+    required DateTime startDate,      // NEW
+    required int durationMonths,      // NEW
+  }) async {
     await _db
         .collection("teachers")
         .doc(teacherId)
@@ -15,6 +23,8 @@ class DatabaseHelper {
       "subject": subject,
       "schedule": schedule,
       "monthly_fee": monthlyFee,
+      "start_date": Timestamp.fromDate(startDate),   // NEW
+      "duration_months": durationMonths,              // NEW
       "total_days": 0,
       "last_attendance_date": null,
       "created_at": FieldValue.serverTimestamp(),
