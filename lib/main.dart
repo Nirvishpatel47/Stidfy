@@ -637,8 +637,21 @@ class DashboardScreen extends StatelessWidget {
                   color: AppColors.primary,
                   onTap: onCreateBatch,
                 ),
-              ),
+              ),   
             ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: _QuickActionButton(
+              icon: Icons.quiz_rounded,
+              label: "Add Test Marks",
+              color: AppColors.lavender,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SelectBatchForTestScreen()),
+              ),
+            ),
           ),
         ],
       ),
@@ -1673,7 +1686,11 @@ class StudentCardScreen extends StatelessWidget {
             _infoTile(Icons.currency_rupee, "Monthly Fee",  "₹$monthlyFee"),
 
             const SizedBox(height: 24),
-
+            
+            _TestMarksSection(studentId: studentId, batchName: batchName),
+            
+            const SizedBox(height: 24),
+            
             // UI: pay full fees button (one tap = done, no manual entry)
             if (!isFullyPaid)
               ElevatedButton.icon(
@@ -1795,6 +1812,317 @@ class StudentCardScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// TEST MARKS SECTION — shown inside StudentCardScreen
+// UI: groups tests by subject, shows each test row, computes
+//     average percentage and overall grade per subject grouping.
+// Backend: reads from students/{sid}/tests subcollection.
+// ════════════════════════════════════════════════════════════════
+class _TestMarksSection extends StatefulWidget {
+  final String studentId, batchName;
+  const _TestMarksSection({required this.studentId, required this.batchName});
+  @override
+  State<_TestMarksSection> createState() => _TestMarksSectionState();
+}
+
+class _TestMarksSectionState extends State<_TestMarksSection> {
+  final String teacherId = FirebaseAuth.instance.currentUser!.uid;
+
+  // UI: selected date filter — defaults to today's month
+  DateTime _selectedDate = DateTime.now();
+
+  String get _selectedDateStr =>
+      "${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}";
+
+  // UI: grade calculator
+  String _grade(double pct) {
+    if (pct >= 90) return "A+";
+    if (pct >= 80) return "A";
+    if (pct >= 70) return "B+";
+    if (pct >= 60) return "B";
+    if (pct >= 50) return "C";
+    if (pct >= 40) return "D";
+    return "F";
+  }
+
+  Color _gradeColor(double pct) {
+    if (pct >= 80) return AppColors.success;
+    if (pct >= 60) return AppColors.teal;
+    if (pct >= 40) return AppColors.warning;
+    return AppColors.error;
+  }
+
+  Future<void> _pickMonth() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(primary: AppColors.primary),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) setState(() => _selectedDate = picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const months = ["","Jan","Feb","Mar","Apr","May","Jun",
+                    "Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection("teachers").doc(teacherId)
+          .collection("students").doc(widget.studentId)
+          .collection("tests")
+          .orderBy("date", descending: false)
+          .snapshots(),
+      builder: (context, snap) {
+        // Section header — always shown
+        Widget header = Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "Test Marks (${widget.batchName})",
+              style: const TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+            ),
+            // UI: month filter pill
+            GestureDetector(
+              onTap: _pickMonth,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_month_outlined, size: 13, color: AppColors.primary),
+                    const SizedBox(width: 4),
+                    Text(
+                      "${months[_selectedDate.month]} ${_selectedDate.year}",
+                      style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600),
+                    ),
+                    const Icon(Icons.arrow_drop_down, size: 16, color: AppColors.primary),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+
+        if (!snap.hasData) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            header,
+            const SizedBox(height: 16),
+            const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+          ]);
+        }
+
+        // Filter tests by selected month
+        final allTests = snap.data!.docs.where((doc) {
+          final date = (doc.data() as Map<String, dynamic>)["date"] as String? ?? "";
+          return date.startsWith(_selectedDateStr);
+        }).toList();
+
+        if (allTests.isEmpty) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            header,
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Text("No tests recorded for this month.",
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  textAlign: TextAlign.center),
+            ),
+          ]);
+        }
+
+        // ── Compute per-subject grouping ───────────────────────
+        // Map: subject → list of {marks, outOf, date}
+        final Map<String, List<Map<String, dynamic>>> bySubject = {};
+        for (final doc in allTests) {
+          final d       = doc.data() as Map<String, dynamic>;
+          final subject = d["subject"] as String? ?? "Unknown";
+          bySubject.putIfAbsent(subject, () => []);
+          bySubject[subject]!.add({
+            "marks":  double.tryParse(d["marks"]  ?? "0") ?? 0,
+            "out_of": double.tryParse(d["out_of"] ?? "100") ?? 100,
+            "date":   d["date"] ?? "",
+          });
+        }
+
+        // ── Overall average across ALL subjects ────────────────
+        double totalMarksSum = 0, totalOutOfSum = 0;
+        for (final tests in bySubject.values) {
+          for (final t in tests) {
+            totalMarksSum += (t["marks"] as double);
+            totalOutOfSum += (t["out_of"] as double);
+          }
+        }
+        final overallPct   = totalOutOfSum > 0 ? (totalMarksSum / totalOutOfSum) * 100 : 0.0;
+        final overallGrade = _grade(overallPct);
+        final overallColor = _gradeColor(overallPct);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            header,
+            const SizedBox(height: 12),
+
+            // ── Per-subject test table card ──────────────────
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))],
+              ),
+              child: Column(
+                children: [
+                  // Table header row
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                    child: Row(
+                      children: [
+                        Expanded(flex: 3, child: Text("Subject",
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary))),
+                        Expanded(flex: 2, child: Text("Date",
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary))),
+                        Expanded(flex: 2, child: Text("Total",
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary))),
+                        Expanded(flex: 2, child: Text("Obtained",
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
+                            textAlign: TextAlign.right)),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1, color: AppColors.divider),
+
+                  // Test rows per subject
+                  ...bySubject.entries.expand((entry) {
+                    final subject = entry.key;
+                    final tests   = entry.value;
+                    return tests.map((t) {
+                      final marks     = t["marks"]  as double;
+                      final outOf     = t["out_of"] as double;
+                      final pct       = outOf > 0 ? (marks / outOf) * 100 : 0.0;
+                      final rowColor  = _gradeColor(pct);
+                      // Format date dd Mon
+                      String dateLabel = t["date"] as String;
+                      try {
+                        final parts = dateLabel.split("-");
+                        if (parts.length == 3) {
+                          final monthIndex = int.tryParse(parts[1]) ?? 0;
+                          if (monthIndex >= 1 && monthIndex <= 12) {
+                            dateLabel = "${parts[2]} ${months[monthIndex]}";
+                          }
+                        }
+                      } catch (_) {}
+
+                      return Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(subject,
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(dateLabel,
+                                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(outOf.toStringAsFixed(0),
+                                      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: rowColor.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        "${marks.toStringAsFixed(0)}/${outOf.toStringAsFixed(0)}",
+                                        style: TextStyle(fontSize: 12, color: rowColor, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 1, color: AppColors.divider, indent: 16, endIndent: 16),
+                        ],
+                      );
+                    });
+                  }).toList(),
+
+                  // ── Average % + Overall Grade footer ──────────
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: overallColor.withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: overallColor.withOpacity(0.3)),
+                                ),
+                                child: Text(
+                                  "Avg ${overallPct.toStringAsFixed(1)}%",
+                                  style: TextStyle(fontSize: 12, color: overallColor, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: overallColor,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            "Grade  $overallGrade",
+                            style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -2411,6 +2739,480 @@ class _EditBatchState extends State<EditBatch> {
                   ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// SELECT BATCH FOR TEST — step 1 of Add Test Marks flow
+// ════════════════════════════════════════════════════════════════
+class SelectBatchForTestScreen extends StatelessWidget {
+  const SelectBatchForTestScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final teacherId = FirebaseAuth.instance.currentUser!.uid;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(title: const Text("Add Test Marks")),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection("teachers").doc(teacherId).collection("batches")
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+          }
+          final batches = snapshot.data!.docs;
+          if (batches.isEmpty) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text("No batches yet. Create a batch from Dashboard.",
+                    style: TextStyle(color: AppColors.textSecondary), textAlign: TextAlign.center),
+              ),
+            );
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.all(20),
+            itemCount: batches.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final batch = batches[index];
+              final data  = batch.data() as Map<String, dynamic>;
+              return GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AddTestMarksScreen(
+                      batchId:   batch.id,
+                      batchName: data["name"] ?? "Unnamed",
+                    ),
+                  ),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: AppColors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.lavender.withOpacity(0.4)),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2))],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.lavender.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.class_rounded, color: AppColors.lavender, size: 22),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(data["name"] ?? "Unnamed",
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                            if ((data["subject"] ?? "").toString().isNotEmpty)
+                              Text(data["subject"],
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// ADD TEST MARKS SCREEN
+// Flow: enter subject + outOf ONCE → cycle through students one by one
+// Backend: saves to teachers/{uid}/students/{sid}/tests/{auto-id}
+// ════════════════════════════════════════════════════════════════
+class AddTestMarksScreen extends StatefulWidget {
+  final String batchId, batchName;
+  const AddTestMarksScreen({required this.batchId, required this.batchName, super.key});
+  @override
+  State<AddTestMarksScreen> createState() => _AddTestMarksScreenState();
+}
+
+class _AddTestMarksScreenState extends State<AddTestMarksScreen> {
+  final String teacherId = FirebaseAuth.instance.currentUser!.uid;
+
+  // Step 1: subject setup
+  bool _setupDone = false;
+  final _subjectCtrl = TextEditingController();
+  final _outOfCtrl   = TextEditingController();
+  DateTime _testDate = DateTime.now();
+
+  // Step 2: per-student entry
+  List<QueryDocumentSnapshot> _students = [];
+  int _currentIndex = 0;
+  final _marksCtrl = TextEditingController();
+  bool _saving     = false;
+  bool _loadingStudents = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStudents();
+  }
+
+  @override
+  void dispose() {
+    _subjectCtrl.dispose();
+    _outOfCtrl.dispose();
+    _marksCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadStudents() async {
+    final snap = await FirebaseFirestore.instance
+        .collection("teachers").doc(teacherId).collection("students")
+        .where("batch_id", isEqualTo: widget.batchId)
+        .where("is_active", isEqualTo: true)
+        .get();
+    if (mounted) setState(() { _students = snap.docs; _loadingStudents = false; });
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _testDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(primary: AppColors.primary),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) setState(() => _testDate = picked);
+  }
+
+  void _confirmSetup() {
+    if (_subjectCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Enter subject name")));
+      return;
+    }
+    final outOf = double.tryParse(_outOfCtrl.text.trim());
+    if (outOf == null || outOf <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Enter valid total marks")));
+      return;
+    }
+    if (_students.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("No active students in this batch")));
+      return;
+    }
+    setState(() { _setupDone = true; _currentIndex = 0; });
+  }
+
+  Future<void> _saveAndNext() async {
+    final marksText = _marksCtrl.text.trim();
+    if (marksText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Enter marks for this student")));
+      return;
+    }
+    final marks = double.tryParse(marksText);
+    if (marks == null || marks < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Enter valid marks")));
+      return;
+    }
+    final outOf = double.tryParse(_outOfCtrl.text.trim()) ?? 0;
+    if (marks > outOf) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Marks cannot exceed total marks")));
+      return;
+    }
+
+    setState(() => _saving = true);
+    final student  = _students[_currentIndex];
+    final dateStr  = _testDate.toIso8601String().split("T")[0];
+
+    await FirebaseFirestore.instance
+        .collection("teachers").doc(teacherId)
+        .collection("students").doc(student.id)
+        .collection("tests").add({
+      "subject":  _subjectCtrl.text.trim(),
+      "marks":    marksText,
+      "out_of":   _outOfCtrl.text.trim(),
+      "date":     dateStr,
+    });
+
+    if (mounted) {
+      setState(() => _saving = false);
+      _marksCtrl.clear();
+
+      if (_currentIndex < _students.length - 1) {
+        setState(() => _currentIndex++);
+      } else {
+        // All done
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("All marks saved!"),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    }
+  }
+
+  void _skipStudent() {
+    _marksCtrl.clear();
+    if (_currentIndex < _students.length - 1) {
+      setState(() => _currentIndex++);
+    } else {
+      Navigator.pop(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text(widget.batchName),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(4),
+          child: _setupDone && _students.isNotEmpty
+              ? LinearProgressIndicator(
+                  value: (_currentIndex + 1) / _students.length,
+                  backgroundColor: AppColors.white.withOpacity(0.3),
+                  valueColor: const AlwaysStoppedAnimation(AppColors.white),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ),
+      body: _loadingStudents
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : _setupDone
+              ? _buildStudentEntry()
+              : _buildSetupStep(),
+    );
+  }
+
+  // ── Step 1: Subject setup ──────────────────────────────────────
+  Widget _buildSetupStep() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.lavender.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.lavender.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.lavender.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.quiz_rounded, color: AppColors.lavender, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("Test Setup",
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                      Text("${_students.length} students · ${widget.batchName}",
+                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          const Text("Test Details",
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 16),
+
+          TextField(
+            controller: _subjectCtrl,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: "Enter Subject",
+              prefixIcon: Icon(Icons.menu_book_outlined, color: AppColors.primary),
+              hintText: "e.g. Math, Science",
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          TextField(
+            controller: _outOfCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: "Total Marks (Out Of) *",
+              prefixIcon: Icon(Icons.bar_chart_rounded, color: AppColors.primary),
+              hintText: "e.g. 100",
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Date picker
+          GestureDetector(
+            onTap: _pickDate,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.primary, width: 2),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.calendar_today_outlined, color: AppColors.primary, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      "${_testDate.day}/${_testDate.month}/${_testDate.year}",
+                      style: const TextStyle(fontSize: 15, color: AppColors.textPrimary),
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down, color: AppColors.textSecondary),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          ElevatedButton.icon(
+            onPressed: _confirmSetup,
+            icon: const Icon(Icons.arrow_forward),
+            label: const Text("Start Entering Marks"),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.lavender),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Step 2: Per-student marks entry ────────────────────────────
+  Widget _buildStudentEntry() {
+    if (_students.isEmpty) {
+      return const Center(
+        child: Text("No students found", style: TextStyle(color: AppColors.textSecondary)),
+      );
+    }
+    final student     = _students[_currentIndex];
+    final studentData = student.data() as Map<String, dynamic>;
+    final name        = studentData["name"] ?? "Unknown";
+    final outOf       = double.tryParse(_outOfCtrl.text.trim()) ?? 100;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Progress indicator text
+          Text(
+            "Student ${_currentIndex + 1} of ${_students.length}",
+            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+
+          // Student card
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              children: [
+                CircleAvatar(
+                  radius: 32,
+                  backgroundColor: AppColors.white.withOpacity(0.2),
+                  child: Text(
+                    name[0].toUpperCase(),
+                    style: const TextStyle(color: AppColors.white, fontSize: 26, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(name,
+                    style: const TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(
+                  "${_subjectCtrl.text.trim()}  ·  Out of ${outOf.toStringAsFixed(0)}",
+                  style: TextStyle(color: AppColors.white.withOpacity(0.75), fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Marks input
+          TextField(
+            controller: _marksCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            autofocus: true,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+            textAlign: TextAlign.center,
+            decoration: InputDecoration(
+              labelText: "Marks Obtained",
+              prefixIcon: const Icon(Icons.edit_rounded, color: AppColors.primary),
+              suffixText: "/ ${outOf.toStringAsFixed(0)}",
+              suffixStyle: const TextStyle(fontSize: 16, color: AppColors.textSecondary),
+            ),
+          ),
+          const SizedBox(height: 28),
+
+          // Save & Next
+          _saving
+              ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+              : ElevatedButton.icon(
+                  onPressed: _saveAndNext,
+                  icon: Icon(_currentIndex < _students.length - 1
+                      ? Icons.arrow_forward
+                      : Icons.check_circle_outline),
+                  label: Text(_currentIndex < _students.length - 1 ? "Save & Next" : "Save & Finish"),
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.lavender),
+                ),
+          const SizedBox(height: 12),
+
+          // Skip button
+          OutlinedButton(
+            onPressed: _skipStudent,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.textSecondary,
+              side: const BorderSide(color: AppColors.divider),
+              minimumSize: const Size(double.infinity, 52),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            child: const Text("Skip (Absent / No Data)"),
+          ),
+        ],
       ),
     );
   }
