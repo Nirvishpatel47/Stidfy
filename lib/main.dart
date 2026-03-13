@@ -1673,7 +1673,40 @@ class StudentCardScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            _statTile("Days Present", "$presentDays days", AppColors.teal),
+            // UI: tappable Days Present tile → opens AttendanceDetailsScreen
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AttendanceDetailsScreen(
+                    studentId: studentId,
+                    studentName: name,
+                    batchName: batchName,
+                    batchId: studentData["batch_id"] ?? "",  
+                    totalPresentDays: presentDays is int ? presentDays : 0,
+                  ),
+                ),
+              ),
+              child: Stack(
+                children: [
+                  _statTile("Days Present", "$presentDays days", AppColors.teal),
+                  // UI: small tap indicator arrow
+                  Positioned(
+                    right: 12,
+                    top: 12,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: AppColors.teal.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Icon(Icons.chevron_right, size: 16, color: AppColors.teal),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
             const SizedBox(height: 16),
 
             // UI: contact info
@@ -1690,7 +1723,7 @@ class StudentCardScreen extends StatelessWidget {
             _TestMarksSection(studentId: studentId, batchName: batchName),
             
             const SizedBox(height: 24),
-            
+
             // UI: pay full fees button (one tap = done, no manual entry)
             if (!isFullyPaid)
               ElevatedButton.icon(
@@ -4086,4 +4119,653 @@ class ProfileScreen extends StatelessWidget {
       ),
     );
   }
+}
+// ════════════════════════════════════════════════════════════════
+// ATTENDANCE DETAILS SCREEN — per-student calendar view
+// UI: Shows overall attendance %, month selector, calendar with
+//     batch-schedule-aware coloring:
+//       Green  = class day + present
+//       Red    = class day + absent
+//       Gray   = not a scheduled class day (no class)
+//       Light  = future date (not yet)
+// Backend: reads attendance subcollection + batch schedule field
+// ════════════════════════════════════════════════════════════════
+class AttendanceDetailsScreen extends StatefulWidget {
+  final String studentId;
+  final String studentName;
+  final String batchName;
+  final String batchId;        // NEW: needed to fetch schedule
+  final int totalPresentDays;
+
+  const AttendanceDetailsScreen({
+    super.key,
+    required this.studentId,
+    required this.studentName,
+    required this.batchName,
+    required this.batchId,
+    required this.totalPresentDays,
+  });
+
+  @override
+  State<AttendanceDetailsScreen> createState() =>
+      _AttendanceDetailsScreenState();
+}
+
+class _AttendanceDetailsScreenState
+    extends State<AttendanceDetailsScreen> {
+  final String teacherId = FirebaseAuth.instance.currentUser!.uid;
+
+  late DateTime _selectedMonth;
+  Set<String> _presentDates = {};
+  Set<int> _classDayWeekdays = {}; // 1=Mon,2=Tue,...7=Sun (DateTime.weekday)
+  String _scheduleLabel = "";
+  bool _loading = true;
+
+  List<DateTime> _availableMonths = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedMonth =
+        DateTime(DateTime.now().year, DateTime.now().month);
+    _buildAvailableMonths();
+    _fetchAll();
+  }
+
+  void _buildAvailableMonths() {
+    final now = DateTime.now();
+    final List<DateTime> months = [];
+    DateTime cursor = DateTime(2024, 1);
+    while (!cursor.isAfter(DateTime(now.year, now.month))) {
+      months.add(cursor);
+      cursor = DateTime(cursor.year, cursor.month + 1);
+    }
+    _availableMonths = months.reversed.toList();
+  }
+
+  // ── Parse schedule string into Set<int> of DateTime weekday numbers ──
+  // Handles formats like:
+  //   "Mon-Wed-Fri"
+  //   "Mon-Wed-Fri | 5 PM"
+  //   "Mon,Wed,Fri"
+  //   "Monday Wednesday Friday"
+  //   "mon tue wed"
+  Set<int> _parseSchedule(String schedule) {
+    // Strip anything after '|' (time part)
+    final cleaned = schedule.split('|').first.trim().toLowerCase();
+
+    const Map<String, int> dayMap = {
+      'mon': DateTime.monday,
+      'monday': DateTime.monday,
+      'tue': DateTime.tuesday,
+      'tues': DateTime.tuesday,
+      'tuesday': DateTime.tuesday,
+      'wed': DateTime.wednesday,
+      'wednesday': DateTime.wednesday,
+      'thu': DateTime.thursday,
+      'thur': DateTime.thursday,
+      'thurs': DateTime.thursday,
+      'thursday': DateTime.thursday,
+      'fri': DateTime.friday,
+      'friday': DateTime.friday,
+      'sat': DateTime.saturday,
+      'saturday': DateTime.saturday,
+      'sun': DateTime.sunday,
+      'sunday': DateTime.sunday,
+    };
+
+    // Split by common separators: - , space /
+    final parts = cleaned.split(RegExp(r'[-,/\s]+'));
+    final Set<int> result = {};
+    for (final part in parts) {
+      final trimmed = part.trim();
+      if (dayMap.containsKey(trimmed)) {
+        result.add(dayMap[trimmed]!);
+      }
+    }
+    return result;
+  }
+
+  // Backend: fetch batch schedule + attendance for selected month
+  Future<void> _fetchAll() async {
+    setState(() => _loading = true);
+    try {
+      // 1. Fetch batch doc to get schedule
+      final batchDoc = await FirebaseFirestore.instance
+          .collection("teachers")
+          .doc(teacherId)
+          .collection("batches")
+          .doc(widget.batchId)
+          .get();
+
+      final scheduleStr =
+          (batchDoc.data()?["schedule"] as String? ?? "").trim();
+      final classDays = _parseSchedule(scheduleStr);
+
+      // 2. Fetch all attendance docs for this student in selected month
+      final monthStr =
+          "${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}";
+
+      final attSnap = await FirebaseFirestore.instance
+          .collection("teachers")
+          .doc(teacherId)
+          .collection("students")
+          .doc(widget.studentId)
+          .collection("attendance")
+          .get();
+
+      final Set<String> present = {};
+      for (final doc in attSnap.docs) {
+        if (doc.id.startsWith(monthStr)) {
+          present.add(doc.id);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _classDayWeekdays = classDays;
+          _scheduleLabel = scheduleStr;
+          _presentDates = present;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // UI: compute attendance % = present class days / total class days so far
+  double _overallPercentage() {
+    final now = DateTime.now();
+    final isCurrentMonth = _selectedMonth.year == now.year &&
+        _selectedMonth.month == now.month;
+    final lastDay = isCurrentMonth
+        ? now.day
+        : DateUtils.getDaysInMonth(
+            _selectedMonth.year, _selectedMonth.month);
+
+    int totalClassDays = 0;
+    int presentClassDays = 0;
+
+    for (int d = 1; d <= lastDay; d++) {
+      final date =
+          DateTime(_selectedMonth.year, _selectedMonth.month, d);
+      // Only count if it's a scheduled class day (or all days if no schedule set)
+      final isClassDay = _classDayWeekdays.isEmpty
+          ? date.weekday != DateTime.sunday
+          : _classDayWeekdays.contains(date.weekday);
+
+      if (isClassDay && !date.isAfter(now)) {
+        totalClassDays++;
+        final dateStr =
+            "${_selectedMonth.year}-${_selectedMonth.month.toString().padLeft(2, '0')}-${d.toString().padLeft(2, '0')}";
+        if (_presentDates.contains(dateStr)) presentClassDays++;
+      }
+    }
+
+    if (totalClassDays == 0) return 0;
+    return (presentClassDays / totalClassDays * 100).clamp(0, 100);
+  }
+
+  String _fullMonthName(int m) => const [
+        "",
+        "JANUARY",
+        "FEBRUARY",
+        "MARCH",
+        "APRIL",
+        "MAY",
+        "JUNE",
+        "JULY",
+        "AUGUST",
+        "SEPTEMBER",
+        "OCTOBER",
+        "NOVEMBER",
+        "DECEMBER"
+      ][m];
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = _loading ? 0.0 : _overallPercentage();
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(title: const Text("Attendance Details")),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // ── Header card ──────────────────────────────────────
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 34,
+                    backgroundColor: AppColors.white.withOpacity(0.22),
+                    child: Text(
+                      widget.studentName[0].toUpperCase(),
+                      style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(widget.studentName,
+                      style: const TextStyle(
+                          color: AppColors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold)),
+                  Text(widget.batchName,
+                      style: TextStyle(
+                          color: AppColors.white.withOpacity(0.75),
+                          fontSize: 13)),
+                  // UI: schedule label
+                  if (_scheduleLabel.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.white.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        "📅  $_scheduleLabel",
+                        style: TextStyle(
+                            color: AppColors.white.withOpacity(0.9),
+                            fontSize: 12),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+
+                  // Overall % row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "${_fullMonthName(_selectedMonth.month)[0]}${_fullMonthName(_selectedMonth.month).substring(1).toLowerCase()} ${_selectedMonth.year}\nAttendance:",
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              "${pct.toStringAsFixed(0)}%",
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              "${_presentDates.length} classes attended",
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(0.75),
+                                  fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      _CircularPercentage(percentage: pct),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // ── Month Selector ───────────────────────────────────
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Month Selector",
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.divider, width: 1.5),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<DateTime>(
+                      isExpanded: true,
+                      value: _selectedMonth,
+                      dropdownColor: AppColors.white,
+                      icon: const Icon(Icons.keyboard_arrow_down,
+                          color: AppColors.textSecondary, size: 22),
+                      style: const TextStyle(
+                          fontSize: 16,
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5),
+                      selectedItemBuilder: (context) => _availableMonths
+                          .map((m) => Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  "${_fullMonthName(m.month)} ${m.year}",
+                                  style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textPrimary,
+                                      letterSpacing: 0.5),
+                                ),
+                              ))
+                          .toList(),
+                      items: _availableMonths
+                          .map((m) => DropdownMenuItem<DateTime>(
+                                value: m,
+                                child: Text(
+                                  "${_fullMonthName(m.month)} ${m.year}",
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      color: AppColors.textPrimary,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _selectedMonth = val);
+                          _fetchAll();
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // ── Calendar ─────────────────────────────────────────
+            _loading
+                ? const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: CircularProgressIndicator(
+                        color: AppColors.primary))
+                : _AttendanceCalendar(
+                    month: _selectedMonth,
+                    presentDates: _presentDates,
+                    classDayWeekdays: _classDayWeekdays,
+                  ),
+
+            const SizedBox(height: 16),
+
+            // ── Legend ───────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 4)
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _legendItem(AppColors.success, Icons.check, "Present"),
+                  _legendItem(AppColors.error.withOpacity(0.8),
+                      Icons.close, "Absent"),
+                  _legendItem(
+                      Colors.grey.shade300, null, "No Class"),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _legendItem(Color color, IconData? icon, String label) {
+    return Row(
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+              color: color, borderRadius: BorderRadius.circular(6)),
+          child: icon != null
+              ? Icon(icon, color: Colors.white, size: 14)
+              : null,
+        ),
+        const SizedBox(width: 6),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 12, color: AppColors.textSecondary)),
+      ],
+    );
+  }
+}
+
+// ── Circular Percentage Ring ──────────────────────────────────
+class _CircularPercentage extends StatelessWidget {
+  final double percentage;
+  const _CircularPercentage({required this.percentage});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 72,
+      height: 72,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CircularProgressIndicator(
+            value: 1,
+            strokeWidth: 7,
+            valueColor: AlwaysStoppedAnimation(
+                AppColors.white.withOpacity(0.2)),
+          ),
+          CircularProgressIndicator(
+            value: percentage / 100,
+            strokeWidth: 7,
+            backgroundColor: Colors.transparent,
+            valueColor:
+                const AlwaysStoppedAnimation(Colors.white),
+          ),
+          Text(
+            "${percentage.toStringAsFixed(0)}%",
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ATTENDANCE CALENDAR WIDGET
+// UI: Renders a full month grid. Each cell is colored based on:
+//   - Is this day a scheduled class day?
+//   - Was the student marked present?
+//   - Is it in the future?
+
+class _AttendanceCalendar extends StatelessWidget {
+  final DateTime month;
+  final Set<String> presentDates;
+  final Set<int> classDayWeekdays; // DateTime.weekday values
+
+  const _AttendanceCalendar({
+    required this.month,
+    required this.presentDates,
+    required this.classDayWeekdays,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final daysInMonth =
+        DateUtils.getDaysInMonth(month.year, month.month);
+    // firstWeekday: 0=Sun,1=Mon,...,6=Sat offset for grid
+    final firstWeekday =
+        DateTime(month.year, month.month, 1).weekday % 7;
+
+    const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+      child: Column(
+        children: [
+          // Day-of-week header row
+          Row(
+            children: dayLabels
+                .map((d) => Expanded(
+                      child: Center(
+                        child: Text(d,
+                            style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary)),
+                      ),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 10),
+
+          // Calendar grid
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate:
+                const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              childAspectRatio: 1,
+              mainAxisSpacing: 6,
+              crossAxisSpacing: 4,
+            ),
+            itemCount: firstWeekday + daysInMonth,
+            itemBuilder: (context, index) {
+              // Empty leading cells
+              if (index < firstWeekday) return const SizedBox();
+
+              final day = index - firstWeekday + 1;
+              final date =
+                  DateTime(month.year, month.month, day);
+              final dateStr =
+                  "${month.year}-${month.month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}";
+
+              final isFuture = date.isAfter(
+                  DateTime(now.year, now.month, now.day));
+
+              // Is this a scheduled class day?
+              // If no schedule is defined, fall back to Mon–Sat
+              final isClassDay = classDayWeekdays.isEmpty
+                  ? date.weekday != DateTime.sunday
+                  : classDayWeekdays.contains(date.weekday);
+
+              final isPresent = presentDates.contains(dateStr);
+
+              // ── Color decision tree ────────────────────────
+              Color bgColor;
+              Color textColor;
+              bool showCross = false;
+              bool showCheck = false;
+
+              if (isFuture) {
+                // Future date — muted, no action
+                bgColor = Colors.grey.shade100;
+                textColor = Colors.grey.shade400;
+              } else if (!isClassDay) {
+                // No class on this weekday
+                bgColor = Colors.grey.shade200;
+                textColor = Colors.grey.shade500;
+              } else if (isPresent) {
+                // Class day + present
+                bgColor = AppColors.success;
+                textColor = Colors.white;
+                showCheck = true;
+              } else {
+                // Class day + absent
+                bgColor = AppColors.error.withOpacity(0.15);
+                textColor = AppColors.error;
+                showCross = true;
+              }
+
+              return Container(
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Day number
+                    Text(
+                      "$day",
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: textColor),
+                    ),
+                    // Diagonal cross for absent
+                    if (showCross)
+                      Positioned.fill(
+                        child: CustomPaint(
+                            painter: _CrossPainter()),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// UI: diagonal cross painter for absent days
+class _CrossPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.error.withOpacity(0.5)
+      ..strokeWidth = 1.4;
+    canvas.drawLine(
+      Offset(size.width * 0.2, size.height * 0.2),
+      Offset(size.width * 0.8, size.height * 0.8),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_CrossPainter old) => false;
 }
