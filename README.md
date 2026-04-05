@@ -260,12 +260,28 @@ teachers/
 
 ## Screenshots
 
-> _Add screenshots here after first build. Recommended screens to capture:_
-> - Auth screen (login / register toggle)
-> - Dashboard — analytics grid + batch cards
-> - Attendance tab — monthly calendar with colour-coded cells
-> - Fees tab — dues and payment recording
-> - Student detail — attendance ring + calendar
+<table align="center">
+  <tr>
+    <td align="center">
+      <b>Attendence Sheet</b><br>
+      <img src="./screenshots/Attendence.png" width="350" alt="Attendence UI">
+    </td>
+    <td align="center">
+      <b>Dashboard</b><br>
+      <img src="./screenshots/Dashboard.png" width="350" alt="Dashboard UI">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>Fees Status</b><br>
+      <img src="./screenshots/Fess.png" width="350" alt="Fees Status UI">
+    </td>
+    <td align="center">
+      <b>Add Marks</b><br>
+      <img src="./screenshots/Marks.png" width="350" alt="Add Student Marks UI">
+    </td>
+  </tr>
+</table>
 
 ---
 
