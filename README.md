@@ -264,21 +264,21 @@ teachers/
   <tr>
     <td align="center">
       <b>Attendence Sheet</b><br>
-      <img src="./screenshots/Attendence.png" width="350" alt="Attendence UI">
+      <img src="./screenshots/Attendence.jpg" width="350" alt="Attendence UI">
     </td>
     <td align="center">
       <b>Dashboard</b><br>
-      <img src="./screenshots/Dashboard.png" width="350" alt="Dashboard UI">
+      <img src="./screenshots/Dashboard.jpg" width="350" alt="Dashboard UI">
     </td>
   </tr>
   <tr>
     <td align="center">
       <b>Fees Status</b><br>
-      <img src="./screenshots/Fess.png" width="350" alt="Fees Status UI">
+      <img src="./screenshots/Fess.jpg" width="350" alt="Fees Status UI">
     </td>
     <td align="center">
       <b>Add Marks</b><br>
-      <img src="./screenshots/Marks.png" width="350" alt="Add Student Marks UI">
+      <img src="./screenshots/Marks.jpg" width="350" alt="Add Student Marks UI">
     </td>
   </tr>
 </table>
