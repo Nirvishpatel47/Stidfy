@@ -477,6 +477,21 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
+## 👥 Development Team
+
+* **Nirvish Patel**
+  * **Role:** Lead Developer & System Architect
+  * **Contributions:** Developed the backend infrastructure, API integrations, core component library, and state management logic.
+
+* **Supriya Roy**
+  * **Role:** Module & UI Developer
+  * **Contributions:** Developed the Marks Management System and implemented the application's UI/UX design.
+
+---
+> **Note:** This project is part of my personal technical portfolio. I am the primary maintainer and responsible for the overall system architecture.
+
+---
+
 ## Acknowledgements
 
 Built with [Flutter](https://flutter.dev) and [Firebase](https://firebase.google.com).
