@@ -274,7 +274,7 @@ teachers/
   <tr>
     <td align="center">
       <b>Fees Status</b><br>
-      <img src="./screenshots/Fess.jpg" width="350" alt="Fees Status UI">
+      <img src="./screenshots/Fees.jpg" width="350" alt="Fees Status UI">
     </td>
     <td align="center">
       <b>Add Marks</b><br>
